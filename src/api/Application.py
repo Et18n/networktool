@@ -1,5 +1,5 @@
 import customtkinter as ctk
-from portscanner import ping_function, main,portscannez
+from portscanner_copy import ping_function, main,portscannez
 
 
 class App(ctk.CTk):
