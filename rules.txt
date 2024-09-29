@@ -9,5 +9,3 @@ alert udp any 63 -> any any SSDP ALERT
 alert udp any 68 -> any any SSDP ALERT 
 alert udp any any -> any 53 DNS DNS DNS
 alert udp any 53 -> any any DNS DNS DNS
-alert udp any any -> any any Aloysius
-
