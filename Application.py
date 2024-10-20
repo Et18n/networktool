@@ -8,7 +8,7 @@ class App(ctk.CTk):
 
         self.title('Network Utility Application')
         self.geometry(f'{self.winfo_screenwidth()}x{self.winfo_screenheight()}+0+0')
-        self._set_appearance_mode('System')
+        self._set_appearance_mode('system')
 
         # Title
         ctk.CTkLabel(self, text='Welcome to the Network Utility', font=('Arial', 24, 'bold')).grid(row=0, column=0, columnspan=2, padx=10, pady=20)
@@ -20,7 +20,7 @@ class App(ctk.CTk):
 
         # Operation Selection
         ctk.CTkLabel(self, text='Select Operation:', font=('Arial', 14)).grid(row=2, column=0, sticky="w", padx=10, pady=5)
-        self.operation = ctk.CTkOptionMenu(self, values=['Ping', 'Port Scan', 'Packet Analysis'], fg_color='grey', button_color='grey')
+        self.operation = ctk.CTkOptionMenu(self, values=['Ping', 'Port Scan', 'Packet Analysis','Trace Route    '], fg_color='grey', button_color='grey')
         self.operation.grid(row=2, column=1, padx=10, pady=5)
 
         # Submit Button
@@ -29,7 +29,7 @@ class App(ctk.CTk):
 
         # Results Frame
         self.results_frame = ctk.CTkFrame(self)
-        self.results_frame.grid(row=4, column=0, columnspan=2, padx=10, pady=20, sticky="nsew")
+        self.results_frame.grid(row=4, column=0, columnspan=2   , padx=10, pady=20, sticky="nsew")
 
         self.result_label = ctk.CTkLabel(self.results_frame, text="", font=('Arial', 12), wraplength=600, justify="left")
         self.result_label.grid(pady=10)
