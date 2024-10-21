@@ -1,8 +1,10 @@
 import scapy.all as scp
+from scapy.all import *
 import threading
 import socket
 import customtkinter as ctk
 from scapy.layers.inet import IP, TCP, UDP
+import psutil
 
 # Function to read rules from a file
 def readrules():
@@ -54,8 +56,20 @@ class PacketAnalyzer(ctk.CTkFrame):
         self.suspiciouspackets = []
         self.updatepktlist = False
         self.running = False
+        self.networkinterface=self.list_network_interfaces()
+        self.networkinterface.insert(0,'All')
+        if not self.networkinterface:
+            self.networkinterface=['No interface available']
 
         # Create GUI components
+        self.interface_label = ctk.CTkLabel(self, text="Select Interface:")
+        self.interface_label.grid(row=0, column=4, padx=10, pady=5, sticky="w")
+        self.interface_dropdown = ctk.CTkOptionMenu(self, values=self.networkinterface)
+        self.interface_dropdown.grid(row=0, column=5, padx=10, pady=5, sticky="w")
+        self.interface_dropdown.set(self.networkinterface[0])
+
+
+
         self.label1 = ctk.CTkLabel(self, text="All Packets:", anchor="w")
         self.label1.grid(row=0, column=0, padx=10, pady=5, sticky="w")
 
@@ -66,7 +80,7 @@ class PacketAnalyzer(ctk.CTkFrame):
         self.label2 = ctk.CTkLabel(self, text="Suspicious Packets:", anchor="w")
         self.label2.grid(row=0, column=1, padx=10, pady=5, sticky="w")
 
-        self.listbox2 = ctk.CTkTextbox(self, height=200, width=500)
+        self.listbox2 = ctk.CTkTextbox(self, height=200, width=600)
         self.listbox2.grid(row=1, column=1, padx=10, pady=5, sticky="w")
         self.listbox2.bind("<Double-1>", self.on_double_click)
 
@@ -77,36 +91,56 @@ class PacketAnalyzer(ctk.CTkFrame):
         self.stop_button = ctk.CTkButton(self, text="Stop Capture", command=self.stop_capture, fg_color="red")
         self.stop_button.grid(row=2, column=1, padx=10, pady=10, sticky="w")
 
-        self.refresh_button = ctk.CTkButton(self, text="Refresh Rules", command=self.refresh_rules, fg_color="yellow")
+        self.refresh_button = ctk.CTkButton(self, text="Refresh Rules", command=self.refresh_rules, fg_color="orange")
         self.refresh_button.grid(row=3, column=0, padx=10, pady=10, sticky="w")
 
-        # Sniffing thread
-        self.sniffthread = threading.Thread(target=self.sniff_thread, daemon=True)
+        self.save_button = ctk.CTkButton(self, text="Save Packets", command=self.save_packets, fg_color="blue")
+        self.save_button.grid(row=3, column=1, padx=10, pady=10, sticky="w")
+        # Save Status Frame (Reasonable Size)
+        self.save_status = ctk.CTkFrame(self, width=200, height=50)  # Define size here
+        self.save_status.grid(row=4, column=0, columnspan=2, padx=10, pady=10, sticky="nsew")  # Position it properly
 
-    def sniff_thread(self):
-        scp.sniff(prn=self.pkt_process, filter="", store=False, stop_filter=lambda x: not self.running)
+        # Save Status Label inside the Frame
+        self.save_status_label = ctk.CTkLabel(self.save_status, text='Saving...', anchor='w')
+        self.save_status_label.pack(fill='both', expand=True, padx=10, pady=10)  # Use pack for better control
+
+
+        # Sniffing thread
+        
+        self.sniffthread = threading.Thread(target=self.sniff_thread, daemon=True)
+    
+        
+
+
+
+    def sniff_thread(self,interface):
+        if interface!='All':
+            scp.sniff(iface=interface, prn=self.pkt_process, filter="", store=False, stop_filter=lambda x: not self.running)
+        else:
+            scp.sniff( prn=self.pkt_process, filter="", store=False, stop_filter=lambda x: not self.running)
 
     def pkt_process(self, pkt):
-        """Process each packet and display summary."""
         if not self.running:
             return
         self.captured_packets.append(pkt)
         pkt_summary = pkt.summary()
-        self.listbox1.insert("end", f"{pkt_summary}\n")  # Insert packet summary in listbox1
+        self.listbox1.insert("end", f"{pkt_summary}\n")  
 
-        # Check if the packet is suspicious based on predefined rules
+      
         flagged, msg = self.check_rules_warning(pkt)
         if flagged:
-            self.listbox2.configure(state="normal")  # Ensure listbox2 is editable
+            self.listbox2.configure(state="normal")  
             self.listbox2.insert("end", f"{pkt_summary} - {msg}\n")
-            self.listbox2.configure(state="disabled")  # Make it read-only after insertion
-            self.suspiciouspackets.append(pkt)  # Add suspicious packet to the list
+            self.listbox2.configure(state="disabled")  
+            self.suspiciouspackets.append(pkt)  
 
     def start_capture(self):
         self.running = True
         self.listbox1.delete("1.0", "end")  # Clear previous entries
         self.listbox2.delete("1.0", "end")  # Clear suspicious packets listbox
+        selected_interface = self.interface_dropdown.get()
         if not self.sniffthread.is_alive():
+            self.sniffthread = threading.Thread(target=lambda: self.sniff_thread(selected_interface), daemon=True)
             self.sniffthread.start()
 
     def stop_capture(self):
@@ -118,24 +152,21 @@ class PacketAnalyzer(ctk.CTkFrame):
 
     def on_double_click(self, event):
         try:
-            # Identify which listbox was clicked (all packets or suspicious packets)
             widget = event.widget
-
+            print(widget)
             # Get the index of the clicked line
             clicked_index = widget.index(f"@{event.x},{event.y}").split('.')[0]
 
             # Retrieve the packet summary from the listbox
             clicked_summary = widget.get(f"{clicked_index}.0", f"{clicked_index}.end").strip()
 
-            # Search for the packet in the suspicious packets list or all captured packets
             packet_list = (
                 self.suspiciouspackets if widget == self.listbox2 else self.captured_packets
             )
 
-            # Find the matching packet and display details
             for pkt in packet_list:
                 if pkt.summary().strip() == clicked_summary:
-                    self.show_packet_details(pkt)  # Pass the packet object
+                    self.show_packet_details(pkt) 
                     break
         except Exception as e:
             print(f"Error: {e}")
@@ -157,7 +188,6 @@ class PacketAnalyzer(ctk.CTkFrame):
                     chksrcport = alertsrcports[i] if alertsrcports[i] != "any" else sport
                     chkdestport = alertdestports[i] if alertdestports[i] != "any" else dport
 
-                    # Matching packet fields with rule
                     if (str(src).strip() == str(chksrcip).strip() and
                         str(dest).strip() == str(chkdestip).strip() and
                         str(proto).strip() == str(chkproto).strip() and
@@ -170,20 +200,17 @@ class PacketAnalyzer(ctk.CTkFrame):
         return False, ""
 
     def proto_name_by_num(self, proto_num):
-        """Convert a protocol number to its protocol name."""
         for name, num in vars(socket).items():
             if name.startswith("IPPROTO") and proto_num == num:
-                return name[8:]  # Return the protocol name (without 'IPPROTO' prefix)
+                return name[8:]  
         return "Unknown"
     
     def show_packet_details(self, packet):
-        """Display detailed packet information in a new window."""
         window = ctk.CTkToplevel(self)
         window.title("Packet Details")
         window.geometry("400x300")
         window.grab_set()
 
-        # Recursively collect all layers and their details
         packet_details = self.inspect_packet(packet)
 
         # Create a textbox to display the packet details
@@ -204,11 +231,32 @@ class PacketAnalyzer(ctk.CTkFrame):
 
         return "\n".join(details)  # Combine all layer details
 
+# Code for network interface filter
+    def list_network_interfaces(self):
+        interfaces = psutil.net_if_addrs()
+        print("Available Network Interfaces:")
+        for interface in interfaces:
+            print(f"- {interface}")
+        return list(interfaces.keys())
+    def save_packets(self):
+        self.save_status_label.configure(text='')
+        """Save captured packets to a pcap file."""
+        if not self.captured_packets:
+            self.save_status_label.configure(text='No packets to save')
+            print("No packets to save.")
+            return
+        
+        # Define the filename (you can customize this or use a file dialog)
+        filename = "NetworkNexus.pcap"
 
+        # Write packets to a pcap file
+        wrpcap(filename, self.captured_packets)
+        self.save_status_label.configure(text=f'Packets saved to {filename}')
+        print(f"Packets saved to {filename}")
     
 if __name__ == "__main__":
     root = ctk.CTk()
     root.title("Packet Analyzer")
-    root.geometry("1100x600")
+    root.geometry("1500x800")
     PacketAnalyzer(root)
     root.mainloop()

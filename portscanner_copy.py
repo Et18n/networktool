@@ -6,19 +6,12 @@ import subprocess
 
 
 def ping_function(target):
-    data=[]
-    param = '-n' if sys.platform == 'win32' else '-c'
-    hostname = target
-    response = os.system(f"ping {param} 1 {hostname}")
-    data.append(param)
-    output = subprocess.check_output(f"ping {target}", shell=True, stderr=subprocess.STDOUT, universal_newlines=True)
+    try:
+        output = subprocess.check_output(f"ping {target}", shell=True, stderr=subprocess.STDOUT, universal_newlines=True)
+    except:
+        output='Invalid Host'
     return output
-    print(f'Ping response for {hostname}: {response}')
-    if response == 0:
-        print(f"{hostname} is up!")
-    else:
-        print(f"{hostname} is down!")
-    return data
+   
 
 
 def portscan_function(port):
@@ -98,4 +91,4 @@ def main(target, start_port, end_port):
 
 # Run the main function
 if __name__ == "__main__":
-    portscannez('xavier.ac.in', 0, 1000)
+    ping_function('xavier.ac.in')
