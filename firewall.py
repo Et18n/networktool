@@ -5,13 +5,16 @@ from tkinter import messagebox
 import socket
 
 class FirewallApp(ctk.CTk):
-    def __init__(self):
-        super().__init__()
-
-        # Window setup
-        self.title("Firewall Control")
-        self.geometry("500x400")
-
+    def __init__(self, root=None):
+        if root is None:
+            super().__init__()
+            self.root = self
+            # Window setup
+            self.title("Firewall Control")
+            self.geometry("500x400")
+        else:
+            self.root = root
+        
         # Create GUI elements
         self.create_gui()
 
